@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Capstone Project 2</title>
+    <link rel="stylesheet" href="https://openlayers.org/en/v4.5.0/css/ol.css" type="text/css">
+    <!-- The line below is only needed for old environments like Internet Explorer and Android 4.x -->
+    <script src="https://cdn.polyfill.io/v2/polyfill.min.js?features=requestAnimationFrame,Element.prototype.classList,URL"></script>
+    <script src="https://openlayers.org/en/v4.5.0/build/ol.js"></script>
+	<style>
+	  .map{
+		position: 100%;
+		z-index: 5
+	  }
+	  .checkbox1{
+	    position: absolute;
+		z-index: 10;
+		left: 3%;
+		bottom: 50%;
+		font-weight: bold;
+	  }
+	  .checkbox{
+	    position: absolute;
+		z-index: 10;
+		left: 3%;
+		bottom: 45%;
+		font-weight: bold;
+	  }
+	  .select{
+		position: absolute;
+		z-index: 10;
+		left: 3%;
+		bottom: 40%;
+		font-weight: bold
+	  }
+	  .swipe{
+		position: absolute;
+		z-index: 10;
+		bottom: 0%;
+		color: black
+	  }
+      .ol-popup {
+        position: absolute;
+        background-color: white;
+        -webkit-filter: drop-shadow(0 1px 4px rgba(0,0,0,0.2));
+        filter: drop-shadow(0 1px 4px rgba(0,0,0,0.2));
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #cccccc;
+        bottom: 12px;
+        left: -50px;
+        min-width: 280px;
+      }
+      .ol-popup:after, .ol-popup:before {
+        top: 100%;
+        border: solid transparent;
+        content: " ";
+        height: 0;
+        width: 0;
+        position: absolute;
+        pointer-events: none;
+      }
+      .ol-popup:after {
+        border-top-color: white;
+        border-width: 10px;
+        left: 48px;
+        margin-left: -10px;
+      }
+      .ol-popup:before {
+        border-top-color: #cccccc;
+        border-width: 11px;
+        left: 48px;
+        margin-left: -11px;
+      }
+      .ol-popup-closer {
+        text-decoration: none;
+        position: absolute;
+        top: 2px;
+        right: 8px;
+      }
+      .ol-popup-closer:after {
+        content: "✖";
+      }
+	  .ol-dragbox {
+        background-color: rgba(255,255,255,0.4);
+        border-color: rgba(100,150,0,1);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map" class="map"></div>
+    <div id="popup" class="ol-popup">
+      <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+      <div id="popup-content"></div>
+    </div>
+	<ul>
+	  <li>
+		<div class="checkbox1" >
+			<label><input type="checkbox" id="roadOnOff" onclick="layerOnOffFunction(this)"/>Road</label>
+		</div>
+	  </li>
+	  <li>
+	    <div class="checkbox" >
+			<label><input type="checkbox" id="riverOnOff" onclick="riverOnOffFunction(this)">River</label>
+		</div>
+	  </li>
+	</ul>
+	<input id="swipe" type="range" style="width: 100%" class = "swipe">
+	<select id="AttriSelection" onchange="myFunction()" class="select">
+		<option value="original">Select a field</option>
+		<option value="persons">Population</option>
+		<option value="land_km" >Area</option>
+		<<option value="density" >Population Density</option>
+	</select>
+    <script>
+      //Define elements that of the popup.
+      var container = document.getElementById('popup');
+      var content = document.getElementById('popup-content');
+      var closer = document.getElementById('popup-closer');
+	  
+	  //Create an overlay to anchor the popup to the map.
+      var overlay = new ol.Overlay(/** @type {olx.OverlayOptions} */ ({
+        element: container,
+        autoPan: true,
+        autoPanAnimation: {
+          duration: 250
+        }
+      }));
+
+      //Add a click handler to hide the popup.
+      closer.onclick = function() {
+        overlay.setPosition(undefined);
+        closer.blur();
+        return false;
+      };
+
+	  //define some colours
+	  var high = [217,71,1];
+      var mid = [253,141,60];
+      var low = [253,190,133];
+      var poor = [254,237,222];
+	  //map the percentile level code to a colour value, grouping them
+	  var percentileLevel = {
+		"High": high,
+		"Medium": mid,
+		"Low": low,
+		"Poor":poor
+	  };
+	  //define a default style
+	  var defaultStyle = new ol.style.Style({
+		stroke: new ol.style.Stroke({
+          color: '#319FD3',
+          width: 3
+        })
+	  });
+	  var styleCache = {}; 
+	  
+	  //Create a function called MyFunction to add the choropleth map layer
+	  function myFunction() {
+	    // Identify the column that has the target level value based on the user selection. It is either l_persons, l_land_km, or l_density.
+	    this.e = document.getElementById("AttriSelection");
+		this.UserSelection = e.options[e.selectedIndex].value
+		console.log(UserSelection);
+		switch (this.UserSelection){
+			case "persons":
+				this.Col = "l_persons";
+				break;
+			case "land_km":
+				this.Col = "l_land_km";
+				break;
+			case "density":
+				this.Col = "l_density";
+				break;
+		}
+		console.log(this.Col);
+		//Define a variable callled vectorLayer to store the states data in chrolopleth form
+		var vectorLayer = new ol.layer.Vector({
+			source: new ol.source.Vector({
+				url: 'http://localhost:8080/geoserver/Capstone/wms?service=WMS&version=1.1.0&request=GetMap&layers=Capstone:edited_states&styles=&bbox=-125.020233154297,24.8338890075684,-66.681037902832,49.4938163757324&width=768&height=330&srs=EPSG:404000&format=application%2Fjson%3Btype%3Dgeojson',
+				format: new ol.format.GeoJSON()
+			}),
+			style: styleFunction
+		});
+		map.addLayer(vectorLayer);
+	  }
+      //Define a fucntion called styleFunction to assign colors to different levels
+	  function styleFunction(feature){
+		var level = feature.get(this.Col);
+		var percentileLevel = {
+			"High": high,
+			"Medium": mid,
+			"Low": low,
+			"Poor":poor
+		};
+
+		if (!level || !percentileLevel[level] || level=="undefined"){
+			return [defaultStyle];
+		}
+		if (!styleCache[level]) {
+			styleCache[level] = new ol.style.Style ({
+				fill: new ol.style.Fill({
+					color: percentileLevel[level]
+				}),
+				stroke: new ol.style.Stroke({
+					color: '#319FD3',
+					width: 3
+				})
+			});
+		}
+		return styleCache[level];
+	   }
+	   
+	  //Define a style to use in the orginal states layer 
+	  var style = new ol.style.Style({
+        stroke: new ol.style.Stroke({
+          color: '#319FD3',
+          width: 3
+        }),
+      });
+	  
+	  //Import highway features and named as roadlayer
+	  var roadlayer = new ol.layer.Vector({
+		source: new ol.source.Vector({
+			url: 'http://localhost:8080/geoserver/Capstone/wms?service=WMS&version=1.1.0&request=GetMap&layers=Capstone:roads&styles=&bbox=-123.764472961426,25.6327629089355,-67.5027313232422,49.1183547973633&width=768&height=330&srs=EPSG:404000&format=application%2Fjson%3Btype%3Dgeojson',
+			format: new ol.format.GeoJSON()
+		}),
+		style:new ol.style.Style({
+				stroke: new ol.style.Stroke({
+					color: '#FCFF33',
+					width: 2
+				}),
+				fill: new ol.style.Fill({
+					color: '#FCFF33'
+				})
+	    })
+	  });
+	  //Import river feature and named as riverlayer
+	  var riverlayer = new ol.layer.Vector({
+		source: new ol.source.Vector({
+			url: 'http://localhost:8080/geoserver/Capstone/wms?service=WMS&version=1.1.0&request=GetMap&layers=Capstone:rivers&styles=&bbox=-124.92626953125,25.918830871582,-66.8256072998047,49.5169868469238&width=768&height=330&srs=EPSG:404000&format=application%2Fjson%3Btype%3Dgeojson',
+			format: new ol.format.GeoJSON()
+		}),
+		style:new ol.style.Style({
+				stroke: new ol.style.Stroke({
+					color: '#225ea8',
+					width: 2
+				}),
+				fill: new ol.style.Fill({
+					color: '#225ea8'
+				})
+	    })
+	  });
+	  
+	  //Define an OSM basemap layer
+	  var osm = new ol.layer.Tile({
+        source: new ol.source.OSM()
+      });
+	  //Define a stament basemap layer
+      var stamen = new ol.layer.Tile({
+        source: new ol.source.Stamen({
+        layer: 'terrain'
+        })
+      });
+	  
+	  //Define the map variable with layers of both basemap layers
+      var map = new ol.Map({
+        layers: [osm, stamen],
+        overlays: [overlay],
+        target: 'map',
+		controls: ol.control.defaults({
+			attributionOptions:({
+				collapsible: false
+			})
+		}),
+        view: new ol.View({
+          center: [-10997148, 4569099],
+          zoom: 4
+        })
+      });
+	  
+	  //Define a variable called vectorLayer to store the original state data
+	  var vectorLayer = new ol.layer.Vector({
+			source: new ol.source.Vector({
+				url: 'http://localhost:8080/geoserver/Capstone/wms?service=WMS&version=1.1.0&request=GetMap&layers=Capstone:edited_states&styles=&bbox=-125.020233154297,24.8338890075684,-66.681037902832,49.4938163757324&width=768&height=330&srs=EPSG:404000&format=application%2Fjson%3Btype%3Dgeojson',
+				format: new ol.format.GeoJSON()
+			}),
+			style: defaultStyle
+	  });
+	  map.addLayer(vectorLayer);
+	  
+	//Create functions to add/remove roadlayer and riverlayer based on user selection in checkboxes
+	function layerOnOffFunction(roadOnOff) {
+		if (roadOnOff.checked) {
+			map.addLayer(roadlayer);
+		} else {
+			map.removeLayer(roadlayer);
+		  }
+	}
+	function riverOnOffFunction(riverOnOff) {
+		if (riverOnOff.checked) {
+			map.addLayer(riverlayer);
+		} else {
+			map.removeLayer(riverlayer);
+		  }
+	}
+	
+	//Create swipe interaction on the basemap layers
+	var swipe = document.getElementById('swipe');
+	
+	stamen.on('precompose', function(event) {
+        var ctx = event.context;
+        var width = ctx.canvas.width * (swipe.value / 100);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(width, 0, ctx.canvas.width - width, ctx.canvas.height);
+        ctx.clip();
+    });
+    stamen.on('postcompose', function(event) {
+        var ctx = event.context;
+        ctx.restore();
+    });
+    swipe.addEventListener('input', function() {
+        map.render();
+    }, false);
+
+	
+	// Create a normal select interaction to handle click
+    var select = new ol.interaction.Select({
+		layers:[vectorLayer]});
+    map.addInteraction(select);
+
+    var selectedFeatures = select.getFeatures();
+
+    // Create a DragBox interaction used to select features by drawing boxes
+    var dragBox = new ol.interaction.DragBox({
+      condition: ol.events.condition.platformModifierKeyOnly
+    });
+
+    map.addInteraction(dragBox);
+
+    dragBox.on('boxend', function() {
+        // features that intersect the box are added to the collection of
+        // selected features
+      var extent = dragBox.getGeometry().getExtent();
+      vectorSource.forEachFeatureIntersectingExtent(extent, function(feature) {
+        selectedFeatures.push(feature);
+      });
+    });
+
+      // clear selection when drawing a new box and when clicking on the map
+    dragBox.on('boxstart', function() {
+      selectedFeatures.clear();
+    });
+	
+	//Define contents in the infobox
+    var infoBox = document.getElementById('info');
+	var test = null;
+    selectedFeatures.on(['add', 'remove'], function(evt) {
+      var names = selectedFeatures.getArray().map(function(feature) {
+        return feature.get('state_name');
+      });
+	  var population = selectedFeatures.getArray().map(function(feature) {
+        return [feature.get('persons')];
+      });
+	  var area = selectedFeatures.getArray().map(function(feature) {
+        return [feature.get('land_km')];
+      });
+	  var density = selectedFeatures.getArray().map(function(feature) {
+        return [feature.get('density')];
+      });
+      if (names.length > 0) {
+        content.innerHTML = '<b>State Name: </b>'+ names[0] + '<br />' + '<b>Population: </b>' + population[0] + '<br />' + '<b>Area_km: </b>' + area[0] + '<br />' + '<b>Population_Density: </b>' + density[0];
+      } else {
+        content.innerHTML = 'No states selected';
+      }
+    });
+	
+	//Add a click handler to the map to render the popup.
+    map.on('singleclick', function(evt) {
+        var coordinate = evt.coordinate;		
+        overlay.setPosition(coordinate);
+      });
+	 
+	
+	
+	
+
+    </script>
+  </body>
+</html>
